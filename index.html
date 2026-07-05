@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>拋體探究實驗室 — 理想模型 vs 真實世界</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>MathJax = { tex: { inlineMath: [['$','$']], displayMath: [['$$','$$']] }, svg: { fontCache: 'global' } };</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+<style>
+  .act { display: none; } .act.active { display: block; }
+  html { scroll-behavior: smooth; }
+  .feedback-card { animation: slideIn .3s ease; }
+  @keyframes slideIn { from { opacity:0; transform:translateY(8px);} to {opacity:1; transform:none;} }
+</style>
+</head>
+<body class="bg-slate-50 text-gray-800 font-sans">
+
+<!-- ===== 登入 ===== -->
+<div id="login" class="min-h-screen flex items-center justify-center p-6">
+  <div class="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
+    <h1 class="text-2xl font-bold mb-1">🚀 拋體探究實驗室</h1>
+    <p class="text-gray-500 mb-6 text-sm">理想模型 vs 真實世界：空氣阻力如何改變拋體？</p>
+    <label class="block text-sm font-medium mb-1">班級代碼</label>
+    <input id="classCode" class="w-full border rounded-lg px-3 py-2 mb-3" placeholder="例：201">
+    <label class="block text-sm font-medium mb-1">姓名</label>
+    <input id="studentId" class="w-full border rounded-lg px-3 py-2 mb-3" placeholder="例：王小明">
+    <label class="block text-sm font-medium mb-1">Gmail</label>
+    <input id="studentMail" type="email" class="w-full border rounded-lg px-3 py-2 mb-5" placeholder="例：xxx@gmail.com">
+    <button onclick="doLogin()" class="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700">開始實驗 →</button>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+<nav class="sticky top-0 z-50 bg-white shadow-sm">
+  <div class="max-w-6xl mx-auto flex items-center justify-between p-3">
+    <div class="flex gap-2">
+      <button onclick="showAct(1)" id="tab1" class="px-4 py-2 rounded-full text-sm font-medium bg-blue-600 text-white">1. 預測 🤔</button>
+      <button onclick="showAct(2)" id="tab2" class="px-4 py-2 rounded-full text-sm font-medium bg-gray-200 text-gray-500" disabled>2. 探究實驗 🔬</button>
+      <button onclick="showAct(3)" id="tab3" class="px-4 py-2 rounded-full text-sm font-medium bg-gray-200 text-gray-500" disabled>3. 解釋 📐 <span id="tab3Lock" class="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">🔒 完成3次試驗解鎖 0/3</span></button>
+    </div>
+    <span id="userBadge" class="text-sm text-gray-500"></span>
+  </div>
+</nav>
+
+<!-- ===== Act 1 ===== -->
+<section id="act1" class="act active">
+  <div class="max-w-2xl mx-auto p-8 text-center">
+    <h1 class="text-3xl font-bold mb-4">🎯 預測挑戰</h1>
+    <p class="text-lg text-gray-600 mb-6">課本說：拋體在 <b>45°</b> 時射程最遠。<br>但課本忽略了空氣阻力。在<b>真實世界</b>（有空氣阻力）中，哪個發射角射程最遠？</p>
+    <div class="bg-blue-50 p-6 rounded-xl mb-6 text-left">
+      <div class="space-y-2" id="predOptions">
+        <label class="flex items-center gap-2 p-2 rounded hover:bg-blue-100 cursor-pointer"><input type="radio" name="pred" value="小於45°">仍需小於 45° 才最遠</label>
+        <label class="flex items-center gap-2 p-2 rounded hover:bg-blue-100 cursor-pointer"><input type="radio" name="pred" value="等於45°">還是 45° 最遠（阻力不影響最佳角度）</label>
+        <label class="flex items-center gap-2 p-2 rounded hover:bg-blue-100 cursor-pointer"><input type="radio" name="pred" value="大於45°">要大於 45° 才最遠</label>
+      </div>
+      <label class="block mt-4 text-sm font-medium">因為…（一句話理由）</label>
+      <input id="predReason" class="w-full border rounded-lg px-3 py-2 mt-1" placeholder="我認為…因為…">
+    </div>
+    <button onclick="submitPrediction()" class="px-8 py-3 bg-blue-600 text-white text-lg rounded-full hover:bg-blue-700 shadow">用實驗找答案！→</button>
+  </div>
+</section>
+
+<!-- ===== Act 2 ===== -->
+<section id="act2" class="act">
+<div class="max-w-6xl mx-auto p-4 md:flex gap-4">
+
+  <!-- 左：模擬 -->
+  <div class="md:w-3/5">
+    <div class="bg-white rounded-xl shadow p-4 mb-4">
+      <canvas id="simCanvas" width="640" height="360" class="w-full rounded-lg bg-gradient-to-b from-sky-100 to-sky-50"></canvas>
+      <div class="flex flex-wrap gap-3 items-end justify-center mt-3">
+        <div><label class="text-xs font-medium">初速 v₀ = <span id="v0Val">30</span> m/s</label><br>
+          <input type="range" id="v0" min="10" max="60" step="1" value="30" class="w-32" oninput="paramChange('v0', this.value)"></div>
+        <div><label class="text-xs font-medium">角度 θ = <span id="angVal">45</span>°</label><br>
+          <input type="range" id="ang" min="5" max="85" step="1" value="45" class="w-32" oninput="paramChange('ang', this.value)"></div>
+        <div><label class="text-xs font-medium">阻力係數 c = <span id="dragVal">0.02</span></label><br>
+          <input type="range" id="drag" min="0" max="0.10" step="0.005" value="0.02" class="w-32" oninput="paramChange('drag', this.value)"></div>
+        <div><label class="text-xs font-medium">質量 m = <span id="massVal">1.0</span> kg</label><br>
+          <input type="range" id="mass" min="0.2" max="5" step="0.1" value="1.0" class="w-32" oninput="paramChange('mass', this.value)"></div>
+        <button onclick="launch()" id="launchBtn" class="px-5 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">🚀 發射</button>
+        <button onclick="resetSim()" class="px-4 py-2 bg-gray-400 text-white rounded-lg">↺ 清空軌跡</button>
+      </div>
+      <p class="text-xs text-gray-500 mt-2 text-center">虛線＝理想模型（無阻力）；實線＝真實模型（空氣阻力 F = −c·v|v|）</p>
+      <div id="readout" class="text-sm text-center mt-1 text-gray-700"></div>
+    </div>
+    <div class="bg-white rounded-xl shadow p-4">
+      <canvas id="rangeChart" height="220"></canvas>
+    </div>
+  </div>
+
+  <!-- 右：實驗日誌 -->
+  <div class="md:w-2/5 mt-4 md:mt-0">
+    <div class="bg-white rounded-xl shadow p-4 mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="font-bold text-lg">📓 實驗日誌</h2>
+        <div class="flex gap-2">
+          <button onclick="askAI('manual')" id="aiBtn" class="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700">🤖 請 AI 教練看我的實驗</button>
+          <button onclick="exportJournal()" class="text-xs px-3 py-1.5 bg-gray-200 rounded-lg">⬇ 匯出</button>
+        </div>
+      </div>
+
+      <!-- 試驗前：目的與預測 -->
+      <div id="trialPlan" class="border border-blue-200 bg-blue-50 rounded-lg p-3 mb-3">
+        <p class="text-sm font-semibold mb-1">下一次試驗（Trial <span id="trialNum">1</span>）</p>
+        <label class="text-xs">這次試驗的目的（選一個探究任務）：</label>
+        <select id="planVar" class="w-full border rounded px-2 py-1 text-sm mb-1">
+          <option value="">— 請選擇 —</option>
+          <option>① 只改「角度θ」其他固定，找出有阻力時射程最遠的角度</option>
+          <option>② 同一角度下，比較 c=0（理想）與 c>0（真實）的射程差多少</option>
+          <option>③ 固定角度45°，逐步加大阻力係數 c，看射程怎麼變</option>
+          <option>④ 只改「質量m」，探討質量變大時阻力的影響變強還是變弱</option>
+          <option>⑤ 只改「初速v₀」，檢驗射程是否還跟 v₀² 成正比</option>
+          <option>⑥ 有阻力時把 v₀ 加倍，射程會加倍嗎？</option>
+          <option>⑦ 改變 c 之後，重新找最佳角度，看最佳角度是否隨 c 移動</option>
+          <option>⑧ 比較低角度(30°)和高角度(60°)，哪個受阻力影響比較大</option>
+          <option>⑨ 用同一組參數重複發射，驗證結果可重現</option>
+        </select>
+        <label class="text-xs">我預測結果會：</label>
+        <select id="planGuess" class="w-full border rounded px-2 py-1 text-sm mb-1">
+          <option value="">— 請選擇 —</option><option>射程變大</option><option>射程變小</option><option>差不多／不受影響</option><option>存在一個最大值（先增後減）</option><option>不確定</option>
+        </select>
+        <input id="planWhy" class="w-full border rounded px-2 py-1 text-sm" placeholder="因為…（選填）">
+      </div>
+
+      <!-- 試驗紀錄 -->
+      <div id="trials" class="space-y-2 max-h-72 overflow-y-auto text-base"></div>
+
+      <!-- CER 小結 -->
+      <div id="cerBox" class="hidden border border-amber-300 bg-amber-50 rounded-lg p-3 mt-3">
+        <p class="text-sm font-bold mb-1">📝 CER 小結（已累積 <span id="cerCount"></span> 次試驗）</p>
+        <label class="text-xs font-medium">主張 Claim：</label>
+        <input id="cerClaim" class="w-full border rounded px-2 py-1 text-sm mb-1" placeholder="我發現…">
+        <label class="text-xs font-medium">證據 Evidence（勾選引用的試驗）：</label>
+        <div id="cerEvidence" class="flex flex-wrap gap-1 mb-1"></div>
+        <label class="text-xs font-medium">推理 Reasoning：</label>
+        <textarea id="cerReason" class="w-full border rounded px-2 py-1 text-sm" rows="2" placeholder="因為物理上…所以證據支持我的主張"></textarea>
+        <button onclick="submitCER()" class="mt-2 w-full py-1.5 bg-amber-500 text-white rounded-lg text-sm font-semibold">送出小結（AI 會給回饋）</button>
+      </div>
+    </div>
+
+    <!-- AI 回饋區 -->
+    <div class="bg-white rounded-xl shadow p-4">
+      <h2 class="font-bold text-lg mb-2">🤖 AI 教練回饋</h2>
+      <div id="feedbackList" class="space-y-2 max-h-96 overflow-y-auto text-base leading-relaxed">
+        <p class="text-gray-400 text-xs">完成試驗或 CER 小結後，AI 教練會在關鍵時刻給你回饋（不會每次操作都打擾你）。</p>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="text-center pb-6">
+  <button onclick="unlockExplain()" id="toAct3" class="hidden px-6 py-3 bg-blue-600 text-white rounded-full shadow hover:bg-blue-700 animate-pulse">🎉 已解鎖！我探索夠了，看數學解釋 →</button>
+</div>
+</section>
+
+<!-- ===== Act 3 ===== -->
+<section id="act3" class="act">
+  <div class="max-w-3xl mx-auto p-8">
+    <h2 class="text-3xl font-bold mb-6">📐 為什麼最佳角度小於 45°？</h2>
+    <div class="bg-amber-50 border-l-4 border-amber-400 p-4 mb-8">
+      <p>你的預測：<b id="showPred"></b></p>
+      <p>你的實驗結果：<b id="showActual"></b></p>
+    </div>
+    <div class="space-y-6 text-lg leading-relaxed" id="mathContent">
+      <div>
+        <h3 class="text-xl font-semibold mb-2">Step 1：理想模型</h3>
+        <p>無阻力時，水平速度恆定、鉛直方向等加速度，射程為 $$R = \frac{v_0^2 \sin 2\theta}{g}$$ 在 $\theta = 45°$ 時 $\sin 2\theta = 1$ 最大——這就是課本的結論。</p>
+      </div>
+      <div>
+        <h3 class="text-xl font-semibold mb-2">Step 2：加入空氣阻力</h3>
+        <p>阻力 $$\vec{F}_D = -c\,|\vec{v}|\,\vec{v}$$ 永遠與速度反向。關鍵不對稱性：飛行<b>後半段（下降）花的時間比上升久</b>，而且高角度發射會讓物體在空中待更久、被阻力「吃掉」更多水平速度。</p>
+      </div>
+      <div>
+        <h3 class="text-xl font-semibold mb-2">Step 3：權衡</h3>
+        <p>射程 = 水平速度 × 滯空時間。高角度買到滯空時間，卻犧牲水平速度且加重阻力損耗；因此最佳解往「壓低角度、保住水平速度」偏移，實驗上你應該量到最佳角度約在 35°–42° 之間（依 c/m 而定）。c/m 越大，最佳角度越低。</p>
+      </div>
+    </div>
+    <div class="mt-8 bg-green-50 border border-green-200 rounded-xl p-6">
+      <h3 class="text-xl font-bold text-green-800 mb-2">💡 關鍵洞見</h3>
+      <p class="text-green-700">「45° 最遠」不是物理定律，而是<b>理想模型的結論</b>——模型改變（加入阻力），結論就會改變。這正是科學建模的核心：所有模型都有適用範圍。</p>
+    </div>
+    <div class="text-center mt-8">
+      <button onclick="exportJournal()" class="px-6 py-3 bg-blue-600 text-white rounded-full shadow">⬇ 匯出我的完整實驗日誌</button>
+    </div>
+  </div>
+</section>
+</div>
+
+<script>
+/* ================= 全域狀態 ================= */
+const API_URL = '/.netlify/functions/feedback';
+const G = 9.8, DT = 1/60, SUBSTEPS = 4;
+let user = {cls:'', id:''};
+let prediction = {choice:null, reason:''};
+let trials = [];            // 完成的試驗
+let eventLog = [];          // 原始操作 log
+let lastAICall = 0;         // cooldown
+const AI_COOLDOWN = 60000;  // 60s
+let trialsSinceCER = 0, trialsSinceAI = 0;
+let paramChangesSinceLaunch = new Set();
+let bestRange = {ang:null, r:0};
+
+const SESSION_ID = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+let logDirty = false;
+function logEvent(type, data) {
+  eventLog.push({t: Date.now(), type, ...data});
+  logDirty = true;
+  if(['login','trial_done','cer_submit','ai_response','export'].includes(type)) uploadLogs();
+}
+async function uploadLogs(){
+  if(!user.id) return;
+  logDirty = false;
+  const payload = JSON.stringify({ sessionId: SESSION_ID, user, prediction, trials, events: eventLog, updatedAt: Date.now() });
+  try{ await fetch('/.netlify/functions/log', {method:'POST', headers:{'Content-Type':'application/json'}, body: payload}); }catch(e){ logDirty = true; }
+}
+setInterval(()=>{ if(logDirty) uploadLogs(); }, 20000);
+window.addEventListener('beforeunload', ()=>{ if(user.id) navigator.sendBeacon('/.netlify/functions/log',
+  new Blob([JSON.stringify({sessionId:SESSION_ID, user, prediction, trials, events:eventLog, updatedAt:Date.now()})],{type:'application/json'})); });
+
+/* ================= 登入 / 分幕 ================= */
+function doLogin(){
+  const c = document.getElementById('classCode').value.trim();
+  const s = document.getElementById('studentId').value.trim();
+  const m = document.getElementById('studentMail').value.trim();
+  if(!c || !s || !m){ alert('請填班級代碼、姓名與 Gmail'); return; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)){ alert('Gmail 格式不正確'); return; }
+  user = {cls:c, id:s, mail:m};
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('userBadge').textContent = `${c} 班・${s}`;
+  logEvent('login', {user});
+}
+function showAct(n){
+  document.querySelectorAll('.act').forEach(el=>el.classList.remove('active'));
+  document.getElementById('act'+n).classList.add('active');
+  for(let i=1;i<=3;i++){
+    const t=document.getElementById('tab'+i);
+    t.className = t.className.replace(i===n?'bg-gray-200 text-gray-500':'bg-blue-600 text-white', i===n?'bg-blue-600 text-white':'bg-gray-200 text-gray-500');
+  }
+  if(n===2) drawScene();
+  if(n===3 && window.MathJax?.typesetPromise) MathJax.typesetPromise();
+}
+function submitPrediction(){
+  const sel = document.querySelector('input[name="pred"]:checked');
+  if(!sel){ alert('請先選一個預測'); return; }
+  prediction = {choice: sel.value, reason: document.getElementById('predReason').value.trim()};
+  logEvent('prediction', prediction);
+  document.getElementById('tab2').disabled = false;
+  showAct(2);
+}
+function unlockExplain(){
+  document.getElementById('tab3').disabled = false;
+  document.getElementById('showPred').textContent = prediction.choice + (prediction.reason ? `（${prediction.reason}）` : '');
+  document.getElementById('showActual').textContent = bestRange.ang !== null ? `你量到最遠的射程出現在 θ = ${bestRange.ang}°（R = ${bestRange.r.toFixed(1)} m）` : '（尚未有試驗數據）';
+  showAct(3);
+  logEvent('act3_unlocked', {});
+}
+
+/* ================= 物理引擎 ================= */
+const cv = document.getElementById('simCanvas'), ctx = cv.getContext('2d');
+const WORLD_W = 200, WORLD_H = 112.5; // meters
+const sx = cv.width / WORLD_W, sy = cv.height / WORLD_H;
+const toX = x => x * sx, toY = y => cv.height - y * sy;
+
+let params = {v0:30, ang:45, drag:0.02, mass:1.0};
+let flight = null;   // 進行中的飛行
+let pastTrajs = [];  // 已完成軌跡（畫淡色）
+
+function paramChange(k, v){
+  params[k === 'ang' ? 'ang' : k] = parseFloat(v);
+  document.getElementById({v0:'v0Val',ang:'angVal',drag:'dragVal',mass:'massVal'}[k]).textContent = v;
+  paramChangesSinceLaunch.add(k);
+  logEvent('param', {k, v: parseFloat(v)});
+  drawScene();
+}
+
+function idealTraj(){
+  const th = params.ang*Math.PI/180, vx = params.v0*Math.cos(th), vy = params.v0*Math.sin(th);
+  const T = 2*vy/G, pts = [];
+  for(let i=0;i<=60;i++){ const t=T*i/60; pts.push([vx*t, vy*t-0.5*G*t*t]); }
+  return pts;
+}
+
+function launch(){
+  if(flight) return;
+  // 檢查是否填了試驗計畫
+  const pv = document.getElementById('planVar').value, pg = document.getElementById('planGuess').value;
+  if(trials.length > 0 && (!pv || !pg)){ alert('請先選「試驗目的」和「預測」再發射（探究的第一步是先想！）'); return; }
+  const th = params.ang*Math.PI/180;
+  // 1) 物理先完整算完（semi-implicit Euler，固定 dt）
+  const p = {x:0, y:0.01, vx:params.v0*Math.cos(th), vy:params.v0*Math.sin(th)};
+  const c = params.drag, m = params.mass, h = DT/SUBSTEPS;
+  const traj = [[0,0]]; let t=0, maxH=0;
+  for(let i=0; i<60*60*SUBSTEPS; i++){
+    const sp = Math.hypot(p.vx, p.vy);
+    p.vx += (-(c/m)*sp*p.vx)*h;            // 先速度
+    p.vy += (-G-(c/m)*sp*p.vy)*h;
+    p.x  += p.vx*h; p.y += p.vy*h;         // 再位置（用新速度）
+    t += h;
+    if(p.y > maxH) maxH = p.y;
+    if(i % SUBSTEPS === 0) traj.push([p.x, Math.max(p.y,0)]);
+    if(p.y <= 0 && p.vy < 0) break;
+  }
+  flight = { traj, t, maxH, range:p.x, x:0, y:0, startWall:Date.now(),
+             plan:{variable:pv||'（首次試驗）', guess:pg||'—', why:document.getElementById('planWhy').value.trim()},
+             params:{...params} };
+  document.getElementById('launchBtn').disabled = true;
+  logEvent('launch', {params:{...params}, plan:flight.plan});
+  stepTimer = setInterval(step, 1000/45); // 2) 動畫只是回放，依實際經過時間跳幀（背景節流也能完成）
+}
+let stepTimer = null;
+
+function step(){
+  if(!flight){ clearInterval(stepTimer); return; }
+  const f = flight;
+  const idx = Math.floor((Date.now() - f.startWall)/1000 * 60);
+  if(idx >= f.traj.length){
+    clearInterval(stepTimer);
+    const last = f.traj[f.traj.length-1];
+    f.x = f.range; f.y = 0; f.playIdx = f.traj.length;
+    drawScene(); finishFlight(); return;
+  }
+  f.playIdx = idx; [f.x, f.y] = f.traj[idx];
+  drawScene();
+}
+
+function finishFlight(){
+  const f = flight;
+  drawScene();
+  const trial = {
+    n: trials.length+1, params: f.params, plan: f.plan,
+    range: f.x, maxH: f.maxH, time: f.t,
+    idealRange: f.params.v0**2 * Math.sin(2*f.params.ang*Math.PI/180)/G
+  };
+  trials.push(trial);
+  pastTrajs.push(f.traj);
+  if(f.x > bestRange.r) bestRange = {ang: f.params.ang, r: f.x};
+  flight = null;
+  document.getElementById('launchBtn').disabled = false;
+  logEvent('trial_done', {n:trial.n, params:trial.params, plan:trial.plan, range:+trial.range.toFixed(2), idealRange:+trial.idealRange.toFixed(2), maxH:+trial.maxH.toFixed(2), time:+trial.time.toFixed(2)});
+  renderTrial(trial);
+  addRangePoint(trial);
+  document.getElementById('readout').innerHTML =
+    `射程 <b>${trial.range.toFixed(1)} m</b>（理想模型：${trial.idealRange.toFixed(1)} m，損失 ${(100*(1-trial.range/trial.idealRange)).toFixed(0)}%）・最大高度 ${trial.maxH.toFixed(1)} m・飛行 ${trial.time.toFixed(1)} s`;
+  document.getElementById('trialNum').textContent = trials.length+1;
+  document.getElementById('planVar').value=''; document.getElementById('planGuess').value=''; document.getElementById('planWhy').value='';
+  trialsSinceCER++; trialsSinceAI++;
+  const lock = document.getElementById('tab3Lock');
+  if(trials.length >= 3){
+    document.getElementById('toAct3').classList.remove('hidden');
+    lock.textContent = '✅ 已解鎖'; lock.className = 'text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full';
+  } else {
+    lock.textContent = `🔒 完成3次試驗解鎖 ${trials.length}/3`;
+  }
+  if(trialsSinceCER >= 3){ showCERBox(); }
+  checkTriggers();
+  paramChangesSinceLaunch.clear();
+}
+
+function drawScene(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  // 地面與格線
+  ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1; ctx.font='10px sans-serif'; ctx.fillStyle='#94a3b8';
+  for(let x=0;x<=WORLD_W;x+=25){ ctx.beginPath(); ctx.moveTo(toX(x),0); ctx.lineTo(toX(x),cv.height); ctx.stroke(); ctx.fillText(x+'m', toX(x)+2, cv.height-4); }
+  ctx.strokeStyle='#475569'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(0,toY(0)); ctx.lineTo(cv.width,toY(0)); ctx.stroke();
+  // 過去軌跡（淡）
+  ctx.lineWidth=1.5;
+  pastTrajs.slice(-6).forEach(tr=>{ ctx.strokeStyle='rgba(59,130,246,0.25)'; ctx.beginPath(); tr.forEach((p,i)=> i?ctx.lineTo(toX(p[0]),toY(p[1])):ctx.moveTo(toX(p[0]),toY(p[1]))); ctx.stroke(); });
+  // 理想軌跡（虛線橘）
+  ctx.setLineDash([6,4]); ctx.strokeStyle='#f97316'; ctx.lineWidth=2; ctx.beginPath();
+  idealTraj().forEach((p,i)=> i?ctx.lineTo(toX(p[0]),toY(p[1])):ctx.moveTo(toX(p[0]),toY(p[1]))); ctx.stroke();
+  ctx.setLineDash([]);
+  // 進行中軌跡（實線藍）＋球
+  if(flight){
+    ctx.strokeStyle='#2563eb'; ctx.lineWidth=2.5; ctx.beginPath();
+    flight.traj.slice(0,(flight.playIdx||0)+1).forEach((p,i)=> i?ctx.lineTo(toX(p[0]),toY(p[1])):ctx.moveTo(toX(p[0]),toY(p[1]))); ctx.stroke();
+    ctx.fillStyle='#1d4ed8'; ctx.beginPath(); ctx.arc(toX(flight.x),toY(flight.y),5,0,7); ctx.fill();
+  }
+  // 發射角指示
+  const th=params.ang*Math.PI/180;
+  ctx.strokeStyle='#16a34a'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(toX(0),toY(0)); ctx.lineTo(toX(8*Math.cos(th)),toY(8*Math.sin(th))); ctx.stroke();
+}
+function resetSim(){ pastTrajs=[]; flight=null; clearInterval(stepTimer); document.getElementById('launchBtn').disabled=false; drawScene(); logEvent('clear_traj',{}); }
+
+/* ================= 圖表：射程 vs 角度 ================= */
+const chart = new Chart(document.getElementById('rangeChart'), {
+  type:'scatter',
+  data:{ datasets:[
+    {label:'真實模型（有阻力）', data:[], backgroundColor:'#2563eb', pointRadius:5},
+    {label:'理想模型（無阻力）', data:[], backgroundColor:'rgba(249,115,22,0.6)', pointStyle:'triangle', pointRadius:5}
+  ]},
+  options:{ responsive:true, animation:{duration:0},
+    scales:{ x:{title:{display:true,text:'發射角 θ (°)'}, min:0, max:90},
+             y:{title:{display:true,text:'射程 R (m)'}, min:0} },
+    plugins:{ title:{display:true,text:'射程 vs 發射角（累積你的每次試驗）'} } }
+});
+function addRangePoint(tr){
+  chart.data.datasets[0].data.push({x:tr.params.ang, y:+tr.range.toFixed(1)});
+  chart.data.datasets[1].data.push({x:tr.params.ang, y:+tr.idealRange.toFixed(1)});
+  chart.update('none');
+}
+
+/* ================= 實驗日誌 ================= */
+function renderTrial(tr){
+  const div = document.createElement('div');
+  div.className = 'border rounded-lg p-2 bg-gray-50';
+  div.innerHTML = `<p class="font-semibold">Trial ${tr.n} <span class="font-normal text-gray-500">｜目的：${tr.plan.variable}・預測：${tr.plan.guess}</span></p>
+    <p class="text-sm text-gray-600">v₀=${tr.params.v0} m/s，θ=${tr.params.ang}°，c=${tr.params.drag}，m=${tr.params.mass} kg → <b class="text-blue-700">R=${tr.range.toFixed(1)} m</b>，H=${tr.maxH.toFixed(1)} m，t=${tr.time.toFixed(1)} s</p>
+    <input class="w-full border rounded px-2 py-1 text-sm mt-1" placeholder="觀察：我看到…與預測一致嗎？" onchange="trials[${tr.n-1}].obs=this.value; logEvent('observation',{n:${tr.n}, text:this.value})">`;
+  const box = document.getElementById('trials');
+  box.prepend(div);
+  if(window.MathJax?.typesetPromise) MathJax.typesetPromise([div]);
+}
+function showCERBox(){
+  document.getElementById('cerBox').classList.remove('hidden');
+  document.getElementById('cerCount').textContent = trials.length;
+  const ev = document.getElementById('cerEvidence'); ev.innerHTML='';
+  trials.forEach(tr=>{
+    ev.insertAdjacentHTML('beforeend', `<label class="text-xs bg-white border rounded px-1.5 py-0.5 cursor-pointer"><input type="checkbox" value="${tr.n}" class="cerEv mr-0.5">T${tr.n}</label>`);
+  });
+}
+function submitCER(){
+  const claim = document.getElementById('cerClaim').value.trim();
+  const reason = document.getElementById('cerReason').value.trim();
+  const evNs = [...document.querySelectorAll('.cerEv:checked')].map(x=>+x.value);
+  if(!claim || !reason || evNs.length===0){ alert('CER 三欄都要：主張、至少勾一筆證據、推理'); return; }
+  const cer = {claim, reason, evidence: evNs.map(n=>trials[n-1])};
+  logEvent('cer_submit', {claim, reason, evidence:evNs});
+  trialsSinceCER = 0;
+  document.getElementById('cerBox').classList.add('hidden');
+  document.getElementById('cerClaim').value=''; document.getElementById('cerReason').value='';
+  askAI('cer', cer);
+}
+
+/* ================= AI 回饋：觸發規則 ================= */
+function checkTriggers(){
+  const last = trials[trials.length-1];
+  // 規則1：一次改多個變因（違反 COV）
+  if(paramChangesSinceLaunch.size >= 2 && trials.length >= 2){
+    askAI('cov_violation', {changed:[...paramChangesSinceLaunch]}); return;
+  }
+  // 規則2：每 4 次試驗給一次里程碑回饋
+  if(trialsSinceAI >= 4){ askAI('milestone'); return; }
+  // 規則3：預測連續落空（預測變大實際變小等）
+  if(trials.length >= 2){
+    const prev = trials[trials.length-2];
+    const grew = last.range > prev.range;
+    if((last.plan.guess==='射程變大' && !grew) || (last.plan.guess==='射程變小' && grew)){
+      askAI('prediction_miss', {expected:last.plan.guess, actual: grew?'變大':'變小'});
+    }
+  }
+}
+
+function buildSummary(){
+  const t = trials.slice(-8).map(tr=>
+    `T${tr.n}: 目的:${tr.plan.variable},預測${tr.plan.guess} | v0=${tr.params.v0},θ=${tr.params.ang},c=${tr.params.drag},m=${tr.params.mass} → R=${tr.range.toFixed(1)}m(理想${tr.idealRange.toFixed(1)})${tr.obs?' 觀察:'+tr.obs:''}`
+  ).join('\n');
+  return `學生:${user.cls}-${user.id}\n初始預測:有阻力時最佳角度${prediction.choice},理由:${prediction.reason||'無'}\n試驗紀錄:\n${t}`;
+}
+
+async function askAI(triggerType, extra){
+  const now = Date.now();
+  if(triggerType !== 'cer' && now - lastAICall < AI_COOLDOWN){
+    if(triggerType==='manual') addFeedback('system','AI 教練休息中，請 '+Math.ceil((AI_COOLDOWN-(now-lastAICall))/1000)+' 秒後再試。');
+    return;
+  }
+  lastAICall = now; trialsSinceAI = 0;
+  logEvent('ai_request', {trigger:triggerType});
+  addFeedback('loading','AI 教練思考中…');
+  try{
+    const res = await fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ trigger:triggerType, summary:buildSummary(), extra:extra||null, user:`${user.cls}-${user.id}` }) });
+    const data = await res.json();
+    removeLoading();
+    addFeedback('ai', data.feedback || data.error || 'AI 暫時無法回應，請稍後再試。');
+    logEvent('ai_response', {trigger:triggerType, ok:!!data.feedback, text:data.feedback||data.error||''});
+  }catch(e){
+    removeLoading();
+    addFeedback('system','連線失敗：'+e.message);
+  }
+}
+function addFeedback(kind, text){
+  const el = document.createElement('div');
+  el.className = 'feedback-card rounded-lg p-3 text-base ' + (kind==='ai'?'bg-purple-50 border border-purple-200':'bg-gray-100 text-gray-500');
+  if(kind==='loading') el.id='fbLoading';
+  el.innerHTML = (kind==='ai'?'<b>🤖 AI 教練：</b>':'') + text.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');
+  const list = document.getElementById('feedbackList');
+  if(list.firstChild?.tagName==='P') list.innerHTML='';
+  list.prepend(el);
+  if(kind==='ai' && window.MathJax?.typesetPromise) MathJax.typesetPromise([el]);
+}
+function removeLoading(){ document.getElementById('fbLoading')?.remove(); }
+
+/* ================= 匯出 ================= */
+function exportJournal(){
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{
+    班級:user.cls, 姓名:user.id, Gmail:user.mail||'', 日期:new Date().toLocaleDateString('zh-TW'),
+    初始預測:prediction.choice||'', 預測理由:prediction.reason||''
+  }]), '基本資料與預測');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(trials.map(tr=>({
+    Trial:tr.n, 試驗目的:tr.plan.variable, 預測:tr.plan.guess, 理由:tr.plan.why||'',
+    'v0 (m/s)':tr.params.v0, '角度 (°)':tr.params.ang, 阻力c:tr.params.drag, '質量 (kg)':tr.params.mass,
+    '射程 (m)':+tr.range.toFixed(2), '理想射程 (m)':+tr.idealRange.toFixed(2),
+    '最大高度 (m)':+tr.maxH.toFixed(2), '飛行時間 (s)':+tr.time.toFixed(2), 觀察:tr.obs||''
+  }))), '試驗紀錄');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    eventLog.filter(e=>e.type==='cer_submit').map(e=>({
+      時間:new Date(e.t).toLocaleString('zh-TW'), 主張:e.claim||'', 引用試驗:(e.evidence||[]).join(','), 推理:e.reason||''}))), 'CER小結');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    eventLog.filter(e=>e.type==='ai_response').map(e=>({
+      時間:new Date(e.t).toLocaleString('zh-TW'), 觸發:e.trigger||'', AI回饋:e.text||''}))), 'AI回饋');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(eventLog.map(e=>({
+    時間:new Date(e.t).toLocaleString('zh-TW'), 事件:e.type,
+    內容:JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k])=>!['t','type'].includes(k)))).slice(0,300)
+  }))), '操作Log');
+  XLSX.writeFile(wb, `實驗日誌_${user.cls}_${user.id}.xlsx`);
+  logEvent('export',{});
+}
+drawScene();
+</script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>教師後台 — 拋體探究實驗室</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="bg-slate-50 text-gray-800 p-6">
+<div class="max-w-6xl mx-auto">
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-bold">👩‍🏫 教師後台 — 拋體探究實驗室</h1>
+    <div class="flex gap-2">
+      <input id="adminKey" type="password" class="border rounded-lg px-3 py-2" placeholder="管理密鑰">
+      <button onclick="load()" class="px-4 py-2 bg-blue-600 text-white rounded-lg">載入資料</button>
+      <button onclick="exportXlsx()" id="xlsxBtn" class="px-4 py-2 bg-green-600 text-white rounded-lg hidden">⬇ 匯出 Excel</button>
+    </div>
+  </div>
+  <div id="summary" class="mb-4 text-sm text-gray-600"></div>
+  <div class="bg-white rounded-xl shadow overflow-x-auto">
+    <table class="w-full text-sm" id="tbl">
+      <thead class="bg-gray-100 text-left">
+        <tr><th class="p-2">班級</th><th class="p-2">姓名</th><th class="p-2">Gmail</th><th class="p-2">初始預測</th><th class="p-2">試驗數</th><th class="p-2">CER數</th><th class="p-2">AI回饋數</th><th class="p-2">事件數</th><th class="p-2">最後更新</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+<script>
+let SESSIONS = [];
+async function load(){
+  const key = document.getElementById('adminKey').value.trim();
+  if(!key){ alert('請輸入管理密鑰'); return; }
+  const res = await fetch('/.netlify/functions/export?key=' + encodeURIComponent(key));
+  if(!res.ok){ alert('載入失敗：' + res.status + (res.status===401?'（密鑰錯誤）':'')); return; }
+  const data = await res.json();
+  SESSIONS = data.sessions;
+  document.getElementById('summary').textContent = `共 ${data.count} 筆學生 session`;
+  const rows = document.getElementById('rows'); rows.innerHTML = '';
+  SESSIONS.forEach(s=>{
+    const cer = s.events.filter(e=>e.type==='cer_submit').length;
+    const ai = s.events.filter(e=>e.type==='ai_response').length;
+    rows.insertAdjacentHTML('beforeend', `<tr class="border-t">
+      <td class="p-2">${esc(s.user.cls)}</td><td class="p-2">${esc(s.user.id)}</td><td class="p-2">${esc(s.user.mail||'')}</td>
+      <td class="p-2">${esc(s.prediction?.choice||'')}</td>
+      <td class="p-2">${s.trials.length}</td><td class="p-2">${cer}</td><td class="p-2">${ai}</td><td class="p-2">${s.events.length}</td>
+      <td class="p-2">${new Date(s.updatedAt).toLocaleString('zh-TW')}</td></tr>`);
+  });
+  document.getElementById('xlsxBtn').classList.remove('hidden');
+}
+const esc = s => String(s??'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+function exportXlsx(){
+  const wb = XLSX.utils.book_new();
+  // 1) 學生總表
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(SESSIONS.map(s=>({
+    班級:s.user.cls, 姓名:s.user.id, Gmail:s.user.mail||'', 初始預測:s.prediction?.choice||'', 預測理由:s.prediction?.reason||'',
+    試驗數:s.trials.length, 事件數:s.events.length, 最後更新:new Date(s.updatedAt).toLocaleString('zh-TW')
+  }))), '學生總表');
+  // 2) 試驗紀錄
+  const trialRows = [];
+  SESSIONS.forEach(s=> s.trials.forEach(t=> trialRows.push({
+    班級:s.user.cls, 姓名:s.user.id, Trial:t.n, 試驗目的:t.plan?.variable||'', 預測:t.plan?.guess||'', 理由:t.plan?.why||'',
+    v0:t.params.v0, 角度:t.params.ang, 阻力c:t.params.drag, 質量m:t.params.mass,
+    射程m:+t.range.toFixed(2), 理想射程m:+t.idealRange.toFixed(2), 最大高度m:+t.maxH.toFixed(2), 飛行秒:+t.time.toFixed(2), 觀察:t.obs||''
+  })));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(trialRows), '試驗紀錄');
+  // 3) CER 小結
+  const cerRows = [];
+  SESSIONS.forEach(s=> s.events.filter(e=>e.type==='cer_submit').forEach(e=> cerRows.push({
+    班級:s.user.cls, 姓名:s.user.id, 時間:new Date(e.t).toLocaleString('zh-TW'),
+    主張:e.claim||'', 引用試驗:(e.evidence||[]).join(','), 推理:e.reason||''
+  })));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cerRows), 'CER小結');
+  // 4) AI 回饋
+  const aiRows = [];
+  SESSIONS.forEach(s=> s.events.filter(e=>e.type==='ai_response').forEach(e=> aiRows.push({
+    班級:s.user.cls, 姓名:s.user.id, 時間:new Date(e.t).toLocaleString('zh-TW'), 觸發:e.trigger||'', 成功:e.ok?'是':'否', AI回饋內容:e.text||''
+  })));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aiRows), 'AI回饋');
+  // 5) 完整事件 Log
+  const evRows = [];
+  SESSIONS.forEach(s=> s.events.forEach(e=> evRows.push({
+    班級:s.user.cls, 姓名:s.user.id, 時間:new Date(e.t).toLocaleString('zh-TW'), 事件:e.type,
+    內容:JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k])=>!['t','type'].includes(k)))).slice(0,300)
+  })));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(evRows), '事件Log');
+  XLSX.writeFile(wb, `拋體探究_全班紀錄_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+</script>
+</body>
+</html>
